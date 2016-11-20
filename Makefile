@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -g3 -O0 -lext2fs -lcom_err -Wunused
+CFLAGS = -g3 -O0 -lext2fs -lcom_err -Wunused -pedantic -Wall
 APP = slackscan
 
 $(APP): main.c
