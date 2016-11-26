@@ -22,9 +22,11 @@ static void usage(const char *execname)
     printf("Usage: %s -f <file> -d <device> [-v]\n"
            "  -d <device>: Parition to scan (e.g., /dev/sda1)\n"
            "  -f <file>:   File to scan\n"
-           "  -v:          Display indiviual slackspace information\n",
-           //"  -x:          Dump contents of file (-f)\n",
-           execname);
+           "  -v:          Display indiviual slackspace information\n"
+#ifdef EXPERIMENTAL_EXTRACT
+           "  -x:          Dump contents of file (-f)\n"
+#endif
+           , execname);
            //"  -i <file>:   Inject file into slackspace\n",
     exit(EXIT_SUCCESS);
 }
@@ -82,7 +84,7 @@ static unsigned process_inode(
     return slack;
 }
 
-/* Scan a device (e.g., /dev/sda1) 
+/* Scan a device (e.g., /dev/sda1)
  * for slack space (requires proper permissions).
  */
 static void scan_device(const char *devname,  _Bool verbose)
@@ -106,7 +108,7 @@ static void scan_device(const char *devname,  _Bool verbose)
     /* Scan all inodes in 'devname' and collect stats */
     n_inodes = n_blocks = n_bytes = total_slack = 0;
     ext2fs_open_inode_scan(fs, 0, &scanner);
-    while (((err = ext2fs_get_next_inode(scanner, &ino, &inode)) == 0) && 
+    while (((err = ext2fs_get_next_inode(scanner, &ino, &inode)) == 0) &&
            (ino != 0)) {
         if (LINUX_S_ISDIR(inode.i_mode))
           dir = ino;
@@ -138,8 +140,8 @@ static char *get_device_name(dev_t devid)
                 strerror(errno));
         exit(EXIT_FAILURE);
     }
-  
-    /* Read each line in /proc/partitions until we find a match for devid */ 
+
+    /* Read each line in /proc/partitions until we find a match for devid */
     found = false;
     name = nametok = NULL;
     while (fgets(line, sizeof(line), fp) != NULL) {
@@ -186,7 +188,7 @@ static void scan_file(const char *fname, _Bool extract)
     struct ext2_inode *inode;
     size_t n_inodes, n_bytes, total_slack;
     struct stat st;
-    
+
     /* Get file's inode and device info */
     if (stat(fname, &st) == -1) {
         fprintf(stderr, "Error calling stat on %s: %s\n",
@@ -215,22 +217,23 @@ static void scan_file(const char *fname, _Bool extract)
     total_slack = calc_slack(EXT2_BLOCK_SIZE(fs->super), n_blocks, n_bytes);
     print_summary(fname, n_inodes, n_blocks, n_bytes, total_slack);
 
-#if 0
+#ifdef EXPERIMENTAL_EXTRACT
     if (extract) {
+        int i;
+        FILE *fp;
         printf("Slack contents of %s:\n", fname);
-        if (!(fp = fdopen(fd, "r"))) {
+        if (!(fp = fopen(fname, "r"))) {
             fprintf(stderr, "Could not obtain a file handle to %s\n", fname);
             exit(EXIT_FAILURE);
         }
 
-        fseek(fp, 1, SEEK_SET);
-        fseek(fp, 0, SEEK_CUR);
+        rewind(fp);
         fgetc(fp);
 
-        for (i=0; i<n_bytes; /*i<(4096-st.st_size);*/ ++i)
+        for (i=0; i<n_bytes+8; /*i<(4096-st.st_size);*/ ++i)
           printf("0x%02x ", ((char *)fp->_IO_read_base)[i]);
     }
-#endif
+#endif /* EXPERIMENTAL_EXTRACT */
 
     ext2fs_close(fs);
     free(devname);
@@ -239,18 +242,20 @@ static void scan_file(const char *fname, _Bool extract)
 int main(int argc, char **argv)
 {
     int opt;
-    _Bool annoying; //, extract;
+    _Bool annoying, extract;
     const char *devname, *fname;
 
     /* Args */
-    annoying = /* extract = */ 0;
+    annoying = extract = false;
     fname = devname = NULL;
     while ((opt = getopt(argc, argv, "i:d:f:vx")) != -1) {
         switch (opt) {
         case 'd': devname = optarg; break;
         case 'f': fname = optarg; break;
         case 'v': annoying = true; break;
-        //case 'x': extract = true; break;
+#ifdef EXPERIMENTAL_EXTRACT
+        case 'x': extract = true; break;
+#endif
         default:
             fprintf(stderr, "Unknown option specified see the help:\n");
             usage(argv[0]);
@@ -268,7 +273,7 @@ int main(int argc, char **argv)
     if (devname)
       scan_device(devname, annoying);
     if (fname)
-      scan_file(fname, false);//extract);
+      scan_file(fname, extract);
 
     return 0;
 }
